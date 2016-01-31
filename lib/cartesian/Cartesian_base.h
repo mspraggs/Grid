@@ -1,3 +1,31 @@
+    /*************************************************************************************
+
+    Grid physics library, www.github.com/paboyle/Grid 
+
+    Source file: ./lib/cartesian/Cartesian_base.h
+
+    Copyright (C) 2015
+
+Author: Peter Boyle <paboyle@ph.ed.ac.uk>
+Author: paboyle <paboyle@ph.ed.ac.uk>
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to the Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+    See the full license in the file "LICENSE" in the top level distribution directory
+    *************************************************************************************/
+    /*  END LEGAL */
 #ifndef GRID_CARTESIAN_BASE_H
 #define GRID_CARTESIAN_BASE_H
 
@@ -166,8 +194,9 @@ public:
       pcoor.resize(_ndimension);
       lcoor.resize(_ndimension);
       for(int mu=0;mu<_ndimension;mu++){
-	pcoor[mu] = gcoor[mu]/_ldimensions[mu];
-	lcoor[mu] = gcoor[mu]%_ldimensions[mu];
+	int _fld  = _fdimensions[mu]/_processors[mu];
+	pcoor[mu] = gcoor[mu]/_fld;
+	lcoor[mu] = gcoor[mu]%_fld;
       }
     }
     void GlobalCoorToRankIndex(int &rank, int &o_idx, int &i_idx ,const std::vector<int> &gcoor)
@@ -176,8 +205,16 @@ public:
       std::vector<int> lcoor;
       GlobalCoorToProcessorCoorLocalCoor(pcoor,lcoor,gcoor);
       rank = RankFromProcessorCoor(pcoor);
-      i_idx= iIndex(lcoor);
-      o_idx= oIndex(lcoor);
+
+      std::vector<int> cblcoor(lcoor);
+      for(int d=0;d<cblcoor.size();d++){
+	if( this->CheckerBoarded(d) ) {
+	  cblcoor[d] = lcoor[d]/2;
+	}
+      }
+
+      i_idx= iIndex(cblcoor);// this does not imply divide by 2 on checker dim
+      o_idx= oIndex(lcoor);// this implies divide by 2 on checkerdim
     }
 
     void RankIndexToGlobalCoor(int rank, int o_idx, int i_idx , std::vector<int> &gcoor)

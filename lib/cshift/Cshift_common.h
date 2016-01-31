@@ -1,3 +1,30 @@
+    /*************************************************************************************
+
+    Grid physics library, www.github.com/paboyle/Grid 
+
+    Source file: ./lib/cshift/Cshift_common.h
+
+    Copyright (C) 2015
+
+Author: Peter Boyle <paboyle@ph.ed.ac.uk>
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to the Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+    See the full license in the file "LICENSE" in the top level distribution directory
+    *************************************************************************************/
+    /*  END LEGAL */
 #ifndef _GRID_CSHIFT_COMMON_H_
 #define _GRID_CSHIFT_COMMON_H_
 
@@ -17,7 +44,7 @@ public:
 // Gather for when there is no need to SIMD split with compression
 ///////////////////////////////////////////////////////////////////
 template<class vobj,class cobj,class compressor> void 
-Gather_plane_simple (const Lattice<vobj> &rhs,std::vector<cobj,alignedAllocator<cobj> > &buffer,int dimension,int plane,int cbmask,compressor &compress)
+Gather_plane_simple (const Lattice<vobj> &rhs,std::vector<cobj,alignedAllocator<cobj> > &buffer,int dimension,int plane,int cbmask,compressor &compress, int off=0)
 {
   int rd = rhs._grid->_rdimensions[dimension];
 
@@ -29,16 +56,27 @@ Gather_plane_simple (const Lattice<vobj> &rhs,std::vector<cobj,alignedAllocator<
   
   int e1=rhs._grid->_slice_nblock[dimension];
   int e2=rhs._grid->_slice_block[dimension];
+
+  if ( cbmask == 0x3 ) { 
 PARALLEL_NESTED_LOOP2
-  for(int n=0;n<e1;n++){
-    for(int b=0;b<e2;b++){
-      int o  = n*rhs._grid->_slice_stride[dimension];
-      int bo = n*rhs._grid->_slice_block[dimension];
-      int ocb=1<<rhs._grid->CheckerBoardFromOindex(o+b);// Could easily be a table lookup
-      if ( ocb &cbmask ) {
-	buffer[bo+b]=compress(rhs._odata[so+o+b],dimension,plane,so+o+b,rhs._grid);
+    for(int n=0;n<e1;n++){
+      for(int b=0;b<e2;b++){
+	int o  = n*rhs._grid->_slice_stride[dimension];
+	int bo = n*rhs._grid->_slice_block[dimension];
+	buffer[off+bo+b]=compress(rhs._odata[so+o+b],dimension,plane,so+o+b,rhs._grid);
       }
     }
+  } else { 
+     int bo=0;
+     for(int n=0;n<e1;n++){
+       for(int b=0;b<e2;b++){
+	 int o  = n*rhs._grid->_slice_stride[dimension];
+	 int ocb=1<<rhs._grid->CheckerBoardFromOindex(o+b);// Could easily be a table lookup
+	 if ( ocb &cbmask ) {
+	   buffer[off+bo++]=compress(rhs._odata[so+o+b],dimension,plane,so+o+b,rhs._grid);
+	 }
+       }
+     }
   }
 }
 
@@ -59,18 +97,33 @@ Gather_plane_extract(const Lattice<vobj> &rhs,std::vector<typename cobj::scalar_
 
   int e1=rhs._grid->_slice_nblock[dimension];
   int e2=rhs._grid->_slice_block[dimension];
+  
+  if ( cbmask ==0x3){
 PARALLEL_NESTED_LOOP2
-  for(int n=0;n<e1;n++){
-    for(int b=0;b<e2;b++){
+    for(int n=0;n<e1;n++){
+      for(int b=0;b<e2;b++){
 
-      int o=n*rhs._grid->_slice_stride[dimension];
-      int offset = b+n*rhs._grid->_slice_block[dimension];
+	int o=n*rhs._grid->_slice_stride[dimension];
+	int offset = b+n*rhs._grid->_slice_block[dimension];
 
-      int ocb=1<<rhs._grid->CheckerBoardFromOindex(o+b);
-      if ( ocb & cbmask ) {
-	cobj temp; 
-	temp =compress(rhs._odata[so+o+b],dimension,plane,so+o+b,rhs._grid);
+	cobj temp =compress(rhs._odata[so+o+b],dimension,plane,so+o+b,rhs._grid);
 	extract<cobj>(temp,pointers,offset);
+
+      }
+    }
+  } else { 
+
+    assert(0); //Fixme think this is buggy
+    for(int n=0;n<e1;n++){
+      for(int b=0;b<e2;b++){
+	int o=n*rhs._grid->_slice_stride[dimension];
+	int ocb=1<<rhs._grid->CheckerBoardFromOindex(o+b);
+	int offset = b+n*rhs._grid->_slice_block[dimension];
+
+	if ( ocb & cbmask ) {
+	  cobj temp =compress(rhs._odata[so+o+b],dimension,plane,so+o+b,rhs._grid);
+	  extract<cobj>(temp,pointers,offset);
+	}
       }
     }
   }
@@ -109,14 +162,26 @@ template<class vobj> void Scatter_plane_simple (Lattice<vobj> &rhs,std::vector<v
     
   int e1=rhs._grid->_slice_nblock[dimension];
   int e2=rhs._grid->_slice_block[dimension];
+  
+  if ( cbmask ==0x3 ) {
 PARALLEL_NESTED_LOOP2
-  for(int n=0;n<e1;n++){
-    for(int b=0;b<e2;b++){
-      int o   =n*rhs._grid->_slice_stride[dimension];
-      int bo  =n*rhs._grid->_slice_block[dimension];
-      int ocb=1<<rhs._grid->CheckerBoardFromOindex(o+b);// Could easily be a table lookup
-      if ( ocb & cbmask ) {
+    for(int n=0;n<e1;n++){
+      for(int b=0;b<e2;b++){
+	int o   =n*rhs._grid->_slice_stride[dimension];
+	int bo  =n*rhs._grid->_slice_block[dimension];
 	rhs._odata[so+o+b]=buffer[bo+b];
+      }
+    }
+  } else { 
+    int bo=0;
+    for(int n=0;n<e1;n++){
+      for(int b=0;b<e2;b++){
+	int o   =n*rhs._grid->_slice_stride[dimension];
+	int bo  =n*rhs._grid->_slice_block[dimension];
+	int ocb=1<<rhs._grid->CheckerBoardFromOindex(o+b);// Could easily be a table lookup
+	if ( ocb & cbmask ) {
+	  rhs._odata[so+o+b]=buffer[bo++];
+	}
       }
     }
   }
@@ -137,14 +202,26 @@ PARALLEL_NESTED_LOOP2
     
   int e1=rhs._grid->_slice_nblock[dimension];
   int e2=rhs._grid->_slice_block[dimension];
+
+  if(cbmask ==0x3 ) {
 PARALLEL_NESTED_LOOP2
-  for(int n=0;n<e1;n++){
-    for(int b=0;b<e2;b++){
-      int o      = n*rhs._grid->_slice_stride[dimension];
-      int offset = b+n*rhs._grid->_slice_block[dimension];
-      int ocb=1<<rhs._grid->CheckerBoardFromOindex(o+b);
-      if ( ocb&cbmask ) {
+    for(int n=0;n<e1;n++){
+      for(int b=0;b<e2;b++){
+	int o      = n*rhs._grid->_slice_stride[dimension];
+	int offset = b+n*rhs._grid->_slice_block[dimension];
 	merge(rhs._odata[so+o+b],pointers,offset);
+      }
+    }
+  } else { 
+    assert(0); // think this is buggy FIXME
+    for(int n=0;n<e1;n++){
+      for(int b=0;b<e2;b++){
+	int o      = n*rhs._grid->_slice_stride[dimension];
+	int offset = b+n*rhs._grid->_slice_block[dimension];
+	int ocb=1<<rhs._grid->CheckerBoardFromOindex(o+b);
+	if ( ocb&cbmask ) {
+	  merge(rhs._odata[so+o+b],pointers,offset);
+	}
       }
     }
   }
@@ -166,17 +243,29 @@ template<class vobj> void Copy_plane(Lattice<vobj>& lhs,const Lattice<vobj> &rhs
 
   int e1=rhs._grid->_slice_nblock[dimension]; // clearly loop invariant for icpc
   int e2=rhs._grid->_slice_block[dimension];
+
+  if(cbmask == 0x3 ){
 PARALLEL_NESTED_LOOP2
-  for(int n=0;n<e1;n++){
-    for(int b=0;b<e2;b++){
+    for(int n=0;n<e1;n++){
+      for(int b=0;b<e2;b++){
  
-      int o =n*rhs._grid->_slice_stride[dimension]+b;
-      int ocb=1<<lhs._grid->CheckerBoardFromOindex(o);
-      if ( ocb&cbmask ) {
-	//lhs._odata[lo+o]=rhs._odata[ro+o];
+        int o =n*rhs._grid->_slice_stride[dimension]+b;
+  	//lhs._odata[lo+o]=rhs._odata[ro+o];
 	vstream(lhs._odata[lo+o],rhs._odata[ro+o]);
       }
-
+    }
+  } else { 
+PARALLEL_NESTED_LOOP2
+    for(int n=0;n<e1;n++){
+      for(int b=0;b<e2;b++){
+ 
+        int o =n*rhs._grid->_slice_stride[dimension]+b;
+        int ocb=1<<lhs._grid->CheckerBoardFromOindex(o);
+        if ( ocb&cbmask ) {
+  	//lhs._odata[lo+o]=rhs._odata[ro+o];
+	  vstream(lhs._odata[lo+o],rhs._odata[ro+o]);
+	}
+      }
     }
   }
   
