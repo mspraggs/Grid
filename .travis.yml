@@ -66,6 +66,7 @@ before_install:
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install libmpc; fi
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]] && [[ "$CC" == "gcc" ]]; then brew install gcc5; fi
     - #CC=$CC$VERSION CXX=$CXX$VERSION source ./scripts/install-mpi.sh
+    - mpicxx -showme
     
 install:
     - export CC=$CC$VERSION
