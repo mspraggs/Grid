@@ -34,7 +34,7 @@ Author: paboyle <paboyle@ph.ed.ac.uk>
 #include <ctime>
 #include <chrono>
 #include <string.h>
-
+#include <unistd.h>
 #include <sys/ioctl.h>
 
 #ifdef __linux__
@@ -43,8 +43,8 @@ Author: paboyle <paboyle@ph.ed.ac.uk>
 #else
 #include <sys/syscall.h>
 #endif
-namespace Grid {
 
+namespace Grid {
 
 #ifdef __linux__
 static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
@@ -58,6 +58,26 @@ static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
 }
 #endif
 
+#ifdef __bgq__
+inline uint64_t cyclecount(void){ 
+   uint64_t tmp;
+   asm volatile ("mfspr %0,0x10C" : "=&r" (tmp)  );
+   return tmp;
+}
+#elif defined __x86_64__
+#include <immintrin.h>
+#ifndef __INTEL_COMPILER
+#include <x86intrin.h>
+#endif
+inline uint64_t cyclecount(void){
+   return __rdtsc();
+}
+#else
+#warning No cycle counter implemented for this architecture
+inline uint64_t cyclecount(void){ 
+   return 0;
+}
+#endif
 
 class PerformanceCounter {
 private:
@@ -102,7 +122,7 @@ public:
 
   long long count;
   int fd;
-  uint64_t elapsed;
+  unsigned long long elapsed;
   uint64_t begin;
 
   static int NumTypes(void){ 
@@ -146,10 +166,10 @@ public:
   {
 #ifdef __linux__
     if ( fd!= -1) {
-      ioctl(fd, PERF_EVENT_IOC_RESET, 0);
-      ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
+      ::ioctl(fd, PERF_EVENT_IOC_RESET, 0);
+      ::ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
     }
-    begin  =__rdtsc();
+    begin  =cyclecount();
 #else
     begin = 0;
 #endif
@@ -159,10 +179,10 @@ public:
     count=0;
 #ifdef __linux__
     if ( fd!= -1) {
-      ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);
+      ::ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);
       ::read(fd, &count, sizeof(long long));
     }
-    elapsed = __rdtsc() - begin;
+    elapsed = cyclecount() - begin;
 #else
     elapsed = 0;
 #endif
@@ -170,16 +190,16 @@ public:
   }
   void Report(void) {
 #ifdef __linux__
-    printf("%llu cycles %s = %20llu\n", elapsed , PerformanceCounterConfigs[PCT].name, count);
+    std::printf("%llu cycles %s = %20llu\n", elapsed , PerformanceCounterConfigs[PCT].name, count);
 #else
-    printf("%llu cycles \n", elapsed );
+    std::printf("%llu cycles \n", elapsed );
 #endif
   }
 
   ~PerformanceCounter()
   {
 #ifdef __linux__
-    close(fd);
+    ::close(fd);
 #endif
   }
 

@@ -1,3 +1,4 @@
+
     /*************************************************************************************
 
     Grid physics library, www.github.com/paboyle/Grid 
@@ -86,6 +87,7 @@ namespace Grid {
       virtual void   MeooeDag    (const FermionField &in, FermionField &out){assert(0);};
       virtual void   MooeeDag    (const FermionField &in, FermionField &out){assert(0);};
       virtual void   MooeeInvDag (const FermionField &in, FermionField &out){assert(0);};
+      virtual void   Mdir   (const FermionField &in, FermionField &out,int dir,int disp){assert(0);};   // case by case Wilson, Clover, Cayley, ContFrac, PartFrac
 
       // These can be overridden by fancy 5d chiral action
       virtual void DhopDeriv  (GaugeField &mat,const FermionField &U,const FermionField &V,int dag);
@@ -126,15 +128,18 @@ namespace Grid {
 			const FermionField &in, 
 			FermionField &out,
 			int dag);
-      void DhopInternalCommsOverlapCompute(StencilImpl & st,
-			LebesgueOrder &lo,
-			DoubledGaugeField &U,
-			const FermionField &in, 
-			FermionField &out,
-			int dag);
 
       // Constructors
       WilsonFermion5D(GaugeField &_Umu,
+		      GridCartesian         &FiveDimGrid,
+		      GridRedBlackCartesian &FiveDimRedBlackGrid,
+		      GridCartesian         &FourDimGrid,
+		      GridRedBlackCartesian &FourDimRedBlackGrid,
+		      double _M5,const ImplParams &p= ImplParams());
+
+      // Constructors
+      WilsonFermion5D(int simd, 
+		      GaugeField &_Umu,
 		      GridCartesian         &FiveDimGrid,
 		      GridRedBlackCartesian &FiveDimRedBlackGrid,
 		      GridCartesian         &FourDimGrid,
@@ -148,7 +153,7 @@ namespace Grid {
       ///////////////////////////////////////////////////////////////
       // Data members require to support the functionality
       ///////////////////////////////////////////////////////////////
-    protected:
+    public:
 
       // Add these to the support from Wilson
       GridBase *_FourDimGrid;

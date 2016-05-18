@@ -45,12 +45,6 @@ Author: paboyle <paboyle@ph.ed.ac.uk>
 #include <algorithm>
 #include <iterator>
 
-#define __X86_64
-
-#ifdef HAVE_EXECINFO_H
-#include <execinfo.h>
-#endif
-
 namespace Grid {
 
 //////////////////////////////////////////////////////
@@ -174,9 +168,8 @@ std::string GridCmdVectorIntToString(const std::vector<int> & vec){
 /////////////////////////////////////////////////////////
 void Grid_init(int *argc,char ***argv)
 {
-#ifdef GRID_COMMS_MPI
-  MPI_Init(argc,argv);
-#endif
+  CartesianCommunicator::Init(argc,argv);
+
   // Parse command line args.
 
   GridLogger::StopWatch.Start();
@@ -196,7 +189,8 @@ void Grid_init(int *argc,char ***argv)
     std::cout<<GridLogMessage<<"--mpi n.n.n.n   : default MPI decomposition"<<std::endl;    
     std::cout<<GridLogMessage<<"--omp n         : default number of OMP threads"<<std::endl;    
     std::cout<<GridLogMessage<<"--grid n.n.n.n  : default Grid size"<<std::endl;    
-    std::cout<<GridLogMessage<<"--log list      : comma separted list of streams from Error,Warning,Message,Performance,Iterative,Integrator,Debug"<<std::endl;    
+    std::cout<<GridLogMessage<<"--log list      : comma separted list of streams from Error,Warning,Message,Performance,Iterative,Integrator,Debug"<<std::endl;
+    exit(EXIT_SUCCESS);
   }
 
   if( GridCmdOptionExists(*argv,*argv+*argc,"--log") ){
@@ -284,7 +278,6 @@ double usecond(void) {
   return 1.0*tv.tv_usec + 1.0e6*tv.tv_sec;
 }
 
-#define _NBACKTRACE (256)
 void * Grid_backtrace_buffer[_NBACKTRACE];
 
 void Grid_sa_signal_handler(int sig,siginfo_t *si,void * ptr)
@@ -294,13 +287,13 @@ void Grid_sa_signal_handler(int sig,siginfo_t *si,void * ptr)
   printf("         code %d\n",si->si_code);
 
   // Linux/Posix
-#ifdef __linux__ 
+#ifdef __linux__
   // And x86 64bit
-    ucontext_t * uc= (ucontext_t *)ptr;
+#ifdef __x86_64__
+  ucontext_t * uc= (ucontext_t *)ptr;
   struct sigcontext *sc = (struct sigcontext *)&uc->uc_mcontext;
   printf("  instruction %llx\n",(unsigned long long)sc->rip);
 #define REG(A)  printf("  %s %lx\n",#A,sc-> A);
-
   REG(rdi);
   REG(rsi);
   REG(rbp);
@@ -321,17 +314,15 @@ void Grid_sa_signal_handler(int sig,siginfo_t *si,void * ptr)
   REG(r14);
   REG(r15);
 #endif
-#ifdef HAVE_EXECINFO_H
-  int symbols    = backtrace        (Grid_backtrace_buffer,_NBACKTRACE);
-  char **strings = backtrace_symbols(Grid_backtrace_buffer,symbols);
-  for (int i = 0; i < symbols; i++){
-    printf ("%s\n", strings[i]);
-  }
 #endif
+  BACKTRACE();
   exit(0);
   return;
 };
-
+#ifdef GRID_FPE
+#define _GNU_SOURCE
+#include <fenv.h>
+#endif
 void Grid_debug_handler_init(void)
 {
   struct sigaction sa,osa;
@@ -340,5 +331,9 @@ void Grid_debug_handler_init(void)
   sa.sa_flags    = SA_SIGINFO;
   sigaction(SIGSEGV,&sa,NULL);
   sigaction(SIGTRAP,&sa,NULL);
+#ifdef GRID_FPE
+  feenableexcept( FE_INVALID|FE_OVERFLOW|FE_DIVBYZERO);
+  sigaction(SIGFPE,&sa,NULL);
+#endif
 }
 }

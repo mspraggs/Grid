@@ -55,15 +55,6 @@ echo :::::::::::::::::::::::::::::::::::::::::::
 
 AC_CHECK_FUNCS([gettimeofday])
 
-#AC_CHECK_LIB([gmp],[__gmpf_init],,
-#        [AC_MSG_ERROR(GNU Multiple Precision GMP library was not found in your system.
-#Please install or provide the correct path to your installation
-#Info at: http://www.gmplib.org)])
-
-#AC_CHECK_LIB([mpfr],[mpfr_init],,
-#        [AC_MSG_ERROR(GNU Multiple Precision MPFR library was not found in your system.
-#Please install or provide the correct path to your installation
-#Info at: http://www.mpfr.org/)])
 
 #
 # SIMD instructions selection
@@ -71,7 +62,7 @@ AC_CHECK_FUNCS([gettimeofday])
 
 AC_ARG_ENABLE([simd],[AC_HELP_STRING([--enable-simd=SSE4|AVX|AVXFMA4|AVX2|AVX512|IMCI],\
 	[Select instructions to be SSE4.0, AVX 1.0, AVX 2.0+FMA, AVX 512, IMCI])],\
-	[ac_SIMD=${enable_simd}],[ac_SIMD=AVX2])
+	[ac_SIMD=${enable_simd}],[ac_SIMD=DEBUG])
 
 supported=no
 
@@ -124,7 +115,7 @@ case ${ac_SIMD} in
        echo Configuring for IMCI
        AC_DEFINE([IMCI],[1],[IMCI Intrinsics for Knights Corner] )
        supported="cross compilation"
-       ac_ZMM=yes;
+       ac_ZMM=no;
      ;;
      NEONv8)
        echo Configuring for experimental ARMv8a support 
@@ -178,11 +169,16 @@ case ${ac_COMMS} in
        echo Configuring for MPI communications
        AC_DEFINE([GRID_COMMS_MPI],[1],[GRID_COMMS_MPI] )
      ;;
+     shmem)
+       echo Configuring for SHMEM communications
+       AC_DEFINE([GRID_COMMS_SHMEM],[1],[GRID_COMMS_SHMEM] )
+     ;;
      *)
      AC_MSG_ERROR([${ac_COMMS} unsupported --enable-comms option]); 
      ;;
 esac
 
+AM_CONDITIONAL(BUILD_COMMS_SHMEM,[ test "X${ac_COMMS}X" == "XshmemX" ])
 AM_CONDITIONAL(BUILD_COMMS_MPI,[ test "X${ac_COMMS}X" == "XmpiX" ])
 AM_CONDITIONAL(BUILD_COMMS_NONE,[ test "X${ac_COMMS}X" == "XnoneX" ])
 
@@ -221,6 +217,26 @@ case ${ac_CHROMA} in
 esac
 
 AM_CONDITIONAL(BUILD_CHROMA_REGRESSION,[ test "X${ac_CHROMA}X" == "XyesX" ])
+
+#
+# Lapack
+#
+AC_ARG_ENABLE([lapack],[AC_HELP_STRING([--enable-lapack],[Enable lapack yes/no ])],[ac_LAPACK=${enable_lapack}],[ac_LAPACK=no])
+
+case ${ac_LAPACK} in
+     yes)
+       echo Enabling lapack
+     ;;
+     no)
+       echo Disabling lapack
+     ;;
+     *)
+       echo Enabling lapack at ${ac_LAPACK}
+     ;;
+esac
+
+AM_CONDITIONAL(USE_LAPACK,[ test "X${ac_LAPACK}X" != "XnoX" ])
+AM_CONDITIONAL(USE_LAPACK_LIB,[ test "X${ac_LAPACK}X" != "XyesX" ])
 
 ###################################################################
 # Checks for doxygen support
@@ -265,6 +281,7 @@ The following features are enabled:
 - communications type           : ${ac_COMMS}
 - default precision             : ${ac_PRECISION}
 - RNG choice                    : ${ac_RNG} 
+- LAPACK	                : ${ac_LAPACK} 
 
 
 "

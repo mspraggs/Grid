@@ -43,7 +43,9 @@ std::string Logger::PURPLE("\033[35m");
 std::string Logger::CYAN("\033[36m");
 std::string Logger::WHITE("\033[37m");
 std::string Logger::NORMAL("\033[0;39m");
+std::string EMPTY("");
 
+#if 0  
   GridLogger GridLogError      (1,"Error",Logger::RED);
   GridLogger GridLogWarning    (1,"Warning",Logger::YELLOW);
   GridLogger GridLogMessage    (1,"Message",Logger::BLACK);
@@ -51,6 +53,15 @@ std::string Logger::NORMAL("\033[0;39m");
   GridLogger GridLogPerformance(1,"Performance",Logger::GREEN);
   GridLogger GridLogIterative  (1,"Iterative",Logger::BLUE);
   GridLogger GridLogIntegrator (1,"Integrator",Logger::BLUE);
+#else
+  GridLogger GridLogError      (1,"Error",EMPTY);
+  GridLogger GridLogWarning    (1,"Warning",EMPTY);
+  GridLogger GridLogMessage    (1,"Message",EMPTY);
+  GridLogger GridLogDebug      (1,"Debug",EMPTY);
+  GridLogger GridLogPerformance(1,"Performance",EMPTY);
+  GridLogger GridLogIterative  (1,"Iterative",EMPTY);
+  GridLogger GridLogIntegrator (1,"Integrator",EMPTY);
+#endif
 
 void GridLogConfigure(std::vector<std::string> &logstreams)
 {
@@ -61,6 +72,19 @@ void GridLogConfigure(std::vector<std::string> &logstreams)
   GridLogDebug.Active(0);
   GridLogPerformance.Active(0);
   GridLogIntegrator.Active(0);
+
+  int blackAndWhite = 1;
+  if(blackAndWhite){
+    Logger::BLACK = std::string("");
+    Logger::RED    =Logger::BLACK;
+    Logger::GREEN  =Logger::BLACK;
+    Logger::YELLOW =Logger::BLACK;
+    Logger::BLUE   =Logger::BLACK;
+    Logger::PURPLE =Logger::BLACK;
+    Logger::CYAN   =Logger::BLACK;
+    Logger::WHITE  =Logger::BLACK;
+    Logger::NORMAL =Logger::BLACK;
+  }
 
   for(int i=0;i<logstreams.size();i++){
     if ( logstreams[i]== std::string("Error")       ) GridLogError.Active(1);
@@ -78,13 +102,16 @@ void GridLogConfigure(std::vector<std::string> &logstreams)
 ////////////////////////////////////////////////////////////
 void Grid_quiesce_nodes(void)
 {
+  int me=0;
 #ifdef GRID_COMMS_MPI
-  int me;
   MPI_Comm_rank(MPI_COMM_WORLD,&me);
+#endif
+#ifdef GRID_COMMS_SHMEM
+  me = shmem_my_pe();
+#endif
   if ( me ) { 
     std::cout.setstate(std::ios::badbit);
   }
-#endif
 }
 
 void Grid_unquiesce_nodes(void)

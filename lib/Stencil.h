@@ -77,7 +77,7 @@ namespace Grid {
     int _around_the_world;
   };
 
-  template<class vobj,class cobj, class compressor>
+  template<class vobj,class cobj>
   class CartesianStencil { // Stencil runs along coordinate axes only; NO diagonal fill in.
   public:
 
@@ -101,7 +101,16 @@ namespace Grid {
 
       std::vector<Packet> Packets;
 
+#define SEND_IMMEDIATE
+#define SERIAL_SENDS
+
       void AddPacket(void *xmit,void * rcv, Integer to,Integer from,Integer bytes){
+	comms_bytes+=2.0*bytes;
+#ifdef SEND_IMMEDIATE
+	commtime-=usecond();
+	_grid->SendToRecvFrom(xmit,to,rcv,from,bytes);
+	commtime+=usecond();
+#endif
 	Packet p;
 	p.send_buf = xmit;
 	p.recv_buf = rcv;
@@ -111,20 +120,63 @@ namespace Grid {
 	p.done     = 0;
 	comms_bytes+=2.0*bytes;
 	Packets.push_back(p);
+
       }
 
+#ifdef SERIAL_SENDS
       void Communicate(void ) { 
 	commtime-=usecond();
 	for(int i=0;i<Packets.size();i++){
-	  _grid->SendToRecvFrom(Packets[i].send_buf,
+#ifndef SEND_IMMEDIATE
+	  _grid->SendToRecvFrom(
+				Packets[i].send_buf,
 				Packets[i].to_rank,
 				Packets[i].recv_buf,
 				Packets[i].from_rank,
 				Packets[i].bytes);
+#endif
 	  Packets[i].done = 1;
 	}
 	commtime+=usecond();
       }
+#else
+      void Communicate(void ) { 
+	typedef CartesianCommunicator::CommsRequest_t CommsRequest_t;
+	std::vector<std::vector<CommsRequest_t> > reqs(Packets.size());
+	commtime-=usecond();
+	const int concurrency=2;
+	for(int i=0;i<Packets.size();i+=concurrency){
+	  for(int ii=0;ii<concurrency;ii++){
+	    int j = i+ii;
+	    if ( j<Packets.size() ) {
+#ifndef SEND_IMMEDIATE
+	      _grid->SendToRecvFromBegin(reqs[j],
+					 Packets[j].send_buf,
+					 Packets[j].to_rank,
+					 Packets[j].recv_buf,
+					 Packets[j].from_rank,
+					 Packets[j].bytes);
+#endif
+	    }
+	  }
+	  for(int ii=0;ii<concurrency;ii++){
+	    int j = i+ii;
+	    if ( j<Packets.size() ) {
+#ifndef SEND_IMMEDIATE
+	      _grid->SendToRecvFromComplete(reqs[i]);
+#endif
+	    }
+	  }
+	  for(int ii=0;ii<concurrency;ii++){
+	    int j = i+ii;
+	    if ( j<Packets.size() ) {
+	      Packets[j].done = 1;
+	    }
+	  }
+	}
+	commtime+=usecond();
+      }
+#endif
 
       ///////////////////////////////////////////
       // Simd merge queue for asynch comms
@@ -144,25 +196,36 @@ namespace Grid {
 	m.rpointers= rpointers;
 	m.buffer_size = buffer_size;
 	m.packet_id   = packet_id;
+#ifdef SEND_IMMEDIATE
+	mergetime-=usecond();
+PARALLEL_FOR_LOOP
+        for(int o=0;o<m.buffer_size;o++){
+	  merge1(m.mpointer[o],m.rpointers,o);
+	}
+	mergetime+=usecond();
+#else
 	Mergers.push_back(m);
+#endif
+
       }
 
       void CommsMerge(void ) { 
 	//PARALLEL_NESTED_LOOP2 
 	for(int i=0;i<Mergers.size();i++){	
-
 	  
 	spintime-=usecond();
 	int packet_id = Mergers[i].packet_id;
 	while(! Packets[packet_id].done ); // spin for completion
 	spintime+=usecond();
 
+#ifndef SEND_IMMEDIATE
 	mergetime-=usecond();
 PARALLEL_FOR_LOOP
 	  for(int o=0;o<Mergers[i].buffer_size;o++){
 	    merge1(Mergers[i].mpointer[o],Mergers[i].rpointers,o);
 	  }
 	mergetime+=usecond();
+#endif
 
 	}
       }
@@ -258,6 +321,9 @@ PARALLEL_FOR_LOOP
 	int simd_layout     = _grid->_simd_layout[dimension];
 	int comm_dim        = _grid->_processors[dimension] >1 ;
 	int splice_dim      = _grid->_simd_layout[dimension]>1 && (comm_dim);
+	int rotate_dim      = _grid->_simd_layout[dimension]>2;
+
+	assert ( (rotate_dim && comm_dim) == false) ; // Do not think spread out is supported
 
 	int sshift[2];
 	
@@ -305,7 +371,8 @@ PARALLEL_FOR_LOOP
       int rd = _grid->_rdimensions[dimension];
       int ld = _grid->_ldimensions[dimension];
       int gd = _grid->_gdimensions[dimension];
-      
+      int ly = _grid->_simd_layout[dimension];
+
       // Map to always positive shift modulo global full dimension.
       int shift = (shiftpm+fd)%fd;
       
@@ -335,7 +402,7 @@ PARALLEL_FOR_LOOP
 	  int wrap = sshift/rd;
 	  int  num = sshift%rd;
 	  if ( x< rd-num ) permute_slice=wrap;
-	  else permute_slice = 1-wrap;
+	  else permute_slice = (wrap+1)%ly;
 	}
 
   	CopyPlane(point,dimension,x,sx,cbmask,permute_slice,wraparound);
@@ -355,7 +422,6 @@ PARALLEL_FOR_LOOP
       int simd_layout     = _grid->_simd_layout[dimension];
       int comm_dim        = _grid->_processors[dimension] >1 ;
       
-      //      assert(simd_layout==1); // Why?
       assert(comm_dim==1);
       int shift = (shiftpm + fd) %fd;
       assert(shift>=0);
@@ -466,7 +532,7 @@ PARALLEL_FOR_LOOP
 	      _entries[point][lo+o+b]._around_the_world=wrap;
 	    }
 	    
-	    }
+	  }
 	  o +=_grid->_slice_stride[dimension];
 	}
 	
@@ -517,6 +583,7 @@ PARALLEL_FOR_LOOP
     }
 
 
+      template<class compressor>
       std::thread HaloExchangeBegin(const Lattice<vobj> &source,compressor &compress) {
 	Mergers.resize(0); 
 	Packets.resize(0);
@@ -524,10 +591,14 @@ PARALLEL_FOR_LOOP
         return std::thread([&] { this->Communicate(); });
       }
 
+      template<class compressor>
       void HaloExchange(const Lattice<vobj> &source,compressor &compress) 
       {
-	auto thr = HaloExchangeBegin(source,compress);
-        HaloExchangeComplete(thr);
+	Mergers.resize(0); 
+	Packets.resize(0);
+	HaloGather(source,compress);
+	Communicate();
+	CommsMerge();
       }
 
       void HaloExchangeComplete(std::thread &thr) 
@@ -538,20 +609,9 @@ PARALLEL_FOR_LOOP
 	jointime+=usecond();
       }
 
-      void HaloGather(const Lattice<vobj> &source,compressor &compress)
+      template<class compressor>
+      void HaloGatherDir(const Lattice<vobj> &source,compressor &compress,int point)
       {
-	// conformable(source._grid,_grid);
-	assert(source._grid==_grid);
-	halogtime-=usecond();
-
-	assert (comm_buf.size() == _unified_buffer_size );
-	u_comm_offset=0;
-
-	// Gather all comms buffers
-	for(int point = 0 ; point < _npoints; point++) {
-
-	  compress.Point(point);
-
 	  int dimension    = _directions[point];
 	  int displacement = _distances[point];
 	  
@@ -599,12 +659,29 @@ PARALLEL_FOR_LOOP
 	      }
 	    }
 	  }
+      }
+
+      template<class compressor>
+      void HaloGather(const Lattice<vobj> &source,compressor &compress)
+      {
+	// conformable(source._grid,_grid);
+	assert(source._grid==_grid);
+	halogtime-=usecond();
+
+	assert (comm_buf.size() == _unified_buffer_size );
+	u_comm_offset=0;
+
+	// Gather all comms buffers
+	for(int point = 0 ; point < _npoints; point++) {
+	  compress.Point(point);
+	  HaloGatherDir(source,compress,point);
 	}
 
 	assert(u_comm_offset==_unified_buffer_size);
 	halogtime+=usecond();
       }
 
+      template<class compressor>
         void Gather(const Lattice<vobj> &rhs,int dimension,int shift,int cbmask,compressor & compress)
 	{
 	  typedef typename cobj::vector_type vector_type;
@@ -649,19 +726,12 @@ PARALLEL_FOR_LOOP
 	      int recv_from_rank;
 	      int xmit_to_rank;
 	      _grid->ShiftedRanks(dimension,comm_proc,xmit_to_rank,recv_from_rank);
-	      assert (xmit_to_rank != _grid->ThisRank());
+	      assert (xmit_to_rank   != _grid->ThisRank());
 	      assert (recv_from_rank != _grid->ThisRank());
 
 	      //      FIXME Implement asynchronous send & also avoid buffer copy
-	      /*
-	      _grid->SendToRecvFrom((void *)&send_buf[0],
-				   xmit_to_rank,
-				    (void *)&comm_buf[u_comm_offset],
-				   recv_from_rank,
-				   bytes);
-	      */ 
 	      AddPacket((void *)&u_send_buf[u_comm_offset],
-			(void *)&comm_buf[u_comm_offset],
+			(void *)  &comm_buf[u_comm_offset],
 			xmit_to_rank,
 			recv_from_rank,
 			bytes);
@@ -672,6 +742,7 @@ PARALLEL_FOR_LOOP
 	}
 
 
+      template<class compressor>
 	void  GatherSimd(const Lattice<vobj> &rhs,int dimension,int shift,int cbmask,compressor &compress)
 	{
 	  const int Nsimd = _grid->Nsimd();
@@ -684,6 +755,7 @@ PARALLEL_FOR_LOOP
 	  int comm_dim        = _grid->_processors[dimension] >1 ;
 
 	  assert(comm_dim==1);
+	  // This will not work with a rotate dim
 	  assert(simd_layout==2);
 	  assert(shift>=0);
 	  assert(shift<fd);
@@ -728,7 +800,9 @@ PARALLEL_FOR_LOOP
 	      gathermtime+=usecond();
 
 	      for(int i=0;i<Nsimd;i++){
-
+		
+		// FIXME 
+		// This logic is hard coded to simd_layout ==2 and not allowing >2
 		//		std::cout << "GatherSimd : lane 1st elem " << i << u_simd_send_buf[i ][u_comm_offset]<<std::endl;
 
 		int inner_bit = (Nsimd>>(permute_type+1));
