@@ -45,6 +45,7 @@ matrix:
             - libgmp-dev
             - libmpc-dev
             - binutils-dev
+            - libopenmpi-dev
       env: VERSION=-3.7
     - compiler: clang
       addons:
